@@ -3,149 +3,125 @@ import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc,updateDoc,collection } from 'firebase/firestore';
+import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 
-const TrackingMap = ({ navigation }) => {
-  const [initialLocation, setInitialLocation] = useState(null);
-  const [userLocation, setUserLocation] = useState(null);
-  const [locationHistory, setLocationHistory] = useState([]);
+const TrackingMap = ({ navigation, route }) => {
+  const { userId, orderId, userLocation } = route.params; // Passed from Cart or Orders screen
+  const [deliveryPersonLocation, setDeliveryPersonLocation] = useState(null); // Delivery person's location
   const [loading, setLoading] = useState(true);
 
-  // Static destination (Point B)
+  // Hardcoded Sai Nursery location
   const pointB = {
     latitude: 15.590386,
     longitude: 73.810582,
   };
 
-  const auth = getAuth();
   const db = getFirestore();
-  const currentUser = auth.currentUser;
-
-  // Function to save location to Firestore
-  const saveLocation = async (userId, locationName, coordinates) => {
-    try {
-      // Get a reference to the user document
-      const userDocRef = doc(db, 'users', userId);
-  
-      // Fetch the current user data
-      const userDocSnapshot = await getDoc(userDocRef);
-  
-      if (userDocSnapshot.exists()) {
-        // Get the existing locations field, or initialize it as an empty array if it doesn't exist
-        const existingLocations = userDocSnapshot.data().locations || [];
-  
-        // Add the new location with status as "live"
-        const newLocation = {
-          name: locationName,
-          coordinates: coordinates,
-          status: 'live', // Initial status is set to "live"
-          timestamp: new Date().toISOString(), // Current timestamp
-        };
-  
-        // Update the locations field with the new location added
-        await updateDoc(userDocRef, {
-          locations: [...existingLocations, newLocation], // Append new location
-        });
-  
-        console.log('Location saved successfully with status "live"!');
-      } else {
-        console.error('User document does not exist');
-      }
-    } catch (error) {
-      console.error('Error saving location: ', error);
-    }
-  };
-  
 
   useEffect(() => {
-    let locationSubscription;
+    console.log(`Monitoring delivery status for userId: ${userId}, orderId: ${orderId}`);
 
-    const getLocation = async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need location permission to track your position.');
-        return;
-      }
-
-      // Get initial location (Point A)
-      let location = await Location.getCurrentPositionAsync({});
-      setInitialLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+    // Monitor delivery person's location
+    const monitorDeliveryPerson = () => {
+      const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+      const unsubscribe = onSnapshot(orderRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const { deliveryLocation } = docSnapshot.data();
+          if (deliveryLocation) {
+            setDeliveryPersonLocation({
+              latitude: deliveryLocation.latitude,
+              longitude: deliveryLocation.longitude,
+            });
+            console.log('Delivery person location updated:', deliveryLocation);
+          }
+        } else {
+          console.error('Order document does not exist.');
+        }
       });
 
-      // Start tracking user's movement
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          distanceInterval: 10,
-          timeInterval: 2000,
-        },
-        async (location) => {
-          const { latitude, longitude } = location.coords;
-          setUserLocation({ latitude, longitude });
+      return unsubscribe;
+    };
 
-          setLocationHistory((prevHistory) => [...prevHistory, { latitude, longitude }]);
+    // Monitor delivery status and show popup if Delivered
+    const monitorDeliveryStatus = () => {
+      const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+      const unsubscribe = onSnapshot(orderRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const { deliveryStatus } = docSnapshot.data();
+          console.log('Current delivery status:', deliveryStatus);
 
-          // Store the user's live location in Firestore
-          if (currentUser) {
-            // Save location history to Firestore
-            await saveLocation(currentUser.uid, 'User Location', { latitude, longitude });
-
-            // Store the user's live location in Firestore (you could store it in a different sub-collection if needed)
-            await setDoc(doc(firestore, 'locations', currentUser.uid), {
-              latitude,
-              longitude,
-              timestamp: new Date().toISOString(),
-            });
+          if (deliveryStatus === 'Delivered') {
+            console.log('Delivery status changed to "Delivered". Showing popup...');
+            Alert.alert(
+              'Delivery Complete',
+              'Your order has been delivered. Thank you for shopping with us!',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    navigation.goBack(); // Automatically navigate to Cart
+                  },
+                },
+              ]
+            );
           }
+        } else {
+          console.error('Order document does not exist.');
         }
-      );
+      });
 
-      setLoading(false);
+      return unsubscribe;
     };
 
-    getLocation();
+    // Start monitoring delivery person and delivery status
+    const unsubscribeDelivery = monitorDeliveryPerson();
+    const unsubscribeStatus = monitorDeliveryStatus();
 
+    setLoading(false);
+
+    // Clean up listeners on unmount
     return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
+      unsubscribeDelivery();
+      unsubscribeStatus();
     };
-  }, [currentUser]);
+  }, [userId, orderId, db, navigation]);
 
   return (
     <View style={styles.container}>
       <MapView
         style={styles.map}
         initialRegion={{
-          latitude: initialLocation ? initialLocation.latitude : 15.598293,
-          longitude: initialLocation ? initialLocation.longitude : 73.807998,
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
       >
-        {/* Static Destination */}
-        <Marker coordinate={pointB} title="Destination (B)" pinColor="red" />
+        {/* Hardcoded Nursery Location Marker */}
+        <Marker coordinate={pointB} title="Sai Nursery" pinColor="red" />
 
-        {/* User's initial location (Static A) */}
-        {initialLocation && <Marker coordinate={initialLocation} title="Starting Point (A)" pinColor="blue" />}
+        {/* User's Location Marker */}
+        <Marker coordinate={userLocation} title="Your Location" pinColor="blue" />
 
-        {/* Moving User Marker (Point C) */}
-        {userLocation && <Marker coordinate={userLocation} title="Your Location (C)" pinColor="green" />}
-
-        {/* Path from A (initial location) to B */}
-        {initialLocation && (
-          <Polyline coordinates={[initialLocation, pointB]} strokeColor="blue" strokeWidth={3} />
+        {/* Delivery Person's Location Marker */}
+        {deliveryPersonLocation && (
+          <Marker
+            coordinate={deliveryPersonLocation}
+            title="Delivery Person"
+            pinColor="purple"
+          />
         )}
 
-        {/* Path from C (live location) to B */}
-        {userLocation && (
-          <Polyline coordinates={[userLocation, pointB]} strokeColor="green" strokeWidth={3} />
+        {/* Polyline: User to Nursery */}
+        <Polyline coordinates={[userLocation, pointB]} strokeColor="green" strokeWidth={3} />
+
+        {/* Polyline: User to Delivery Person */}
+        {deliveryPersonLocation && (
+          <Polyline coordinates={[userLocation, deliveryPersonLocation]} strokeColor="blue" strokeWidth={3} />
         )}
       </MapView>
 
+      {/* Back Button */}
       <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
         <Icon name="arrow-back" size={30} color="white" />
       </TouchableOpacity>

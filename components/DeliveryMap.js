@@ -1,113 +1,169 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useRoute } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { getFirestore, doc, updateDoc } from 'firebase/firestore'; 
+import { getFirestore, doc, onSnapshot, updateDoc, getDoc } from 'firebase/firestore';
 
-const DeliveryTrackingMap = ({ navigation }) => {
+const DeliveryMap = ({ navigation }) => {
   const route = useRoute();
-  const { locationName, coordinates, userId, locationDocId } = route.params;
+  const { userId, orderId } = route.params; // Passed from DeliveryHome
 
-  const [liveCoordinates, setLiveCoordinates] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [destinationCoordinates, setDestinationCoordinates] = useState(null); // User's destination
+  const [deliveryCoordinates, setDeliveryCoordinates] = useState(null); // Delivery person's live location
   const db = getFirestore();
 
-  // Static start point (predefined location)
-  const startPoint = {
-    latitude: 15.598293, // Static latitude
-    longitude: 73.807998, // Static longitude
+  // Static Nursery Location
+  const nurseryCoordinates = {
+    latitude: 15.590386, // Sai Nursery latitude
+    longitude: 73.810582, // Sai Nursery longitude
   };
 
   useEffect(() => {
-    if (!coordinates) {
-      setError('Coordinates not found!');
-      setLoading(false);
-    } else {
-      setLoading(false);
-    }
+    const fetchOrderDestination = async () => {
+      try {
+        // Fetch user's destination from orders
+        const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+        const orderSnapshot = await getDoc(orderRef);
 
-    // Get live location if permission is granted
-    const getLiveLocation = async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setError('Permission Denied');
-        setLoading(false);
-        return;
+        if (orderSnapshot.exists()) {
+          const { location } = orderSnapshot.data(); // Assuming "location" contains user's coordinates
+          setDestinationCoordinates({
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+        } else {
+          console.error('Destination not found for the order.');
+        }
+      } catch (error) {
+        console.error('Error fetching order destination:', error);
       }
-
-      // Get live location of the user
-      const liveLocation = await Location.getCurrentPositionAsync({});
-      setLiveCoordinates({
-        latitude: liveLocation.coords.latitude,
-        longitude: liveLocation.coords.longitude,
-      });
     };
 
-    getLiveLocation();
-  }, [coordinates]);
-
-  const handleDelivered = async () => {
-    try {
-      const locationRef = doc(db, 'users', userId, 'locations', locationDocId);
-
-      // Update status to 'delivered'
-      await updateDoc(locationRef, {
-        'status': 'delivered',
+    const trackDeliveryLocation = () => {
+      // Listen for delivery person's live location in Firestore
+      const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+      const unsubscribe = onSnapshot(orderRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const { deliveryLocation } = docSnapshot.data();
+          if (deliveryLocation) {
+            setDeliveryCoordinates({
+              latitude: deliveryLocation.latitude,
+              longitude: deliveryLocation.longitude,
+            });
+          }
+        }
       });
 
-      console.log('Status updated to delivered!');
-      // Navigate to Delivery Home after updating status
-      navigation.navigate('DeliveryHome');  // Go to the Delivery Home screen after update
-    } catch (error) {
-      console.error('Error updating status:', error);
-      setError('Error updating status');
-    }
+      return unsubscribe;
+    };
+
+    const updateLiveLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'We need location permission to show your position.');
+          return;
+        }
+
+        const liveLocation = await Location.getCurrentPositionAsync({});
+        const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+
+        // Update delivery person's live location in Firestore
+        await updateDoc(orderRef, {
+          deliveryLocation: {
+            latitude: liveLocation.coords.latitude,
+            longitude: liveLocation.coords.longitude,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        console.error('Error updating delivery location:', error);
+      }
+    };
+
+    // Update delivery location periodically
+    const intervalId = setInterval(updateLiveLocation, 90000); // Every 90 seconds
+
+    const unsubscribeDeliveryLocation = trackDeliveryLocation();
+    fetchOrderDestination(); // Fetch user's destination
+
+    return () => {
+      clearInterval(intervalId); // Clear interval when component unmounts
+      unsubscribeDeliveryLocation(); // Clean up Firestore listener
+    };
+  }, [userId, orderId, db]);
+
+  const handleDelivered = async () => {
+    Alert.alert(
+      'Confirm Delivery',
+      'Are you sure you want to mark this order as delivered?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              const orderRef = doc(db, `users/${userId}/orders/${orderId}`);
+              await updateDoc(orderRef, { deliveryStatus: 'Delivered' }); // Update order status to delivered
+              Alert.alert('Success', 'Order has been marked as delivered.');
+              navigation.navigate('DeliveryHome'); // Navigate back to DeliveryHome
+            } catch (error) {
+              console.error('Error updating delivery status:', error);
+              Alert.alert('Error', 'Failed to update delivery status.');
+            }
+          },
+        },
+      ]
+    );
   };
-
-  if (loading) {
-    return <Text>Loading map...</Text>;
-  }
-
-  if (error) {
-    return <Text>{error}</Text>;
-  }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>{locationName}</Text>
       <MapView
         style={styles.map}
         initialRegion={{
-          latitude: coordinates.latitude || startPoint.latitude,
-          longitude: coordinates.longitude || startPoint.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
+          latitude: nurseryCoordinates.latitude,
+          longitude: nurseryCoordinates.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
         }}
       >
-        {/* Static Start Point */}
-        <Marker coordinate={startPoint} title="Start Point" pinColor="blue" />
+        {/* Static Nursery Location Marker */}
+        <Marker coordinate={nurseryCoordinates} title="Sai Nursery" pinColor="green" />
 
-        {/* Fetched Coordinates */}
-        <Marker coordinate={coordinates} title={locationName} pinColor="green" />
-
-        {/* Live Coordinates */}
-        {liveCoordinates && (
-          <Marker coordinate={liveCoordinates} title="Live Location" pinColor="red" />
+        {/* User's Destination Marker */}
+        {destinationCoordinates && (
+          <Marker
+            coordinate={destinationCoordinates}
+            title="User's Destination"
+            pinColor="orange"
+          />
         )}
 
-        {/* Polyline from Live Location to Fetched Coordinates */}
-        {liveCoordinates && (
+        {/* Delivery Person's Live Location Marker */}
+        {deliveryCoordinates && (
+          <Marker
+            coordinate={deliveryCoordinates}
+            title="Delivery Person"
+            pinColor="blue"
+          />
+        )}
+
+        {/* Path from Delivery Person to User */}
+        {destinationCoordinates && deliveryCoordinates && (
           <Polyline
-            coordinates={[liveCoordinates, coordinates]}
-            strokeColor="blue"
+            coordinates={[deliveryCoordinates, destinationCoordinates]}
+            strokeColor="green"
             strokeWidth={3}
           />
         )}
       </MapView>
 
-      {/* "Delivered" Button */}
+      {/* Delivered Button */}
       <TouchableOpacity style={styles.deliveredButton} onPress={handleDelivered}>
         <Text style={styles.deliveredButtonText}>Mark as Delivered</Text>
       </TouchableOpacity>
@@ -124,26 +180,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
   map: {
     flex: 1,
-  },
-  backButton: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    padding: 10,
-    borderRadius: 5,
-  },
-  backText: {
-    color: 'white',
-    fontSize: 16,
   },
   deliveredButton: {
     position: 'absolute',
@@ -160,6 +198,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  backButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    padding: 10,
+    borderRadius: 5,
+  },
+  backText: {
+    color: 'white',
+    fontSize: 16,
+  },
 });
 
-export default DeliveryTrackingMap;
+export default DeliveryMap;

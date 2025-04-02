@@ -28,7 +28,7 @@ const plants = [
 const ProductList = ({navigation}) => {
   const [hearts, setHearts] = useState({});
   const [favorites, setFavorites] = useState([]);  // Store favorites list
-
+  const [localSearchQuery, setLocalSearchQuery] = useState(""); // For page-specific search
   const [showSearchInput, setShowSearchInput] = useState(false); // Track visibility of TextInput
   const route = useRoute();
   const searchQuery = route.params?.query || "";
@@ -63,11 +63,12 @@ const ProductList = ({navigation}) => {
 
 
   const handleSearch = () => {
-    if (searchQuery.trim() === "") {
-      setFilteredPlants(plants);
+    const query = localSearchQuery.trim();
+    if (query === "") {
+      setFilteredPlants(plants); // Reset to full list
     } else {
       const filtered = plants.filter((plant) =>
-        plant.name.toLowerCase().includes(searchQuery.toLowerCase())
+        plant.name.toLowerCase().includes(query.toLowerCase())
       );
       setFilteredPlants(filtered);
     }
@@ -117,8 +118,8 @@ const ProductList = ({navigation}) => {
           <TextInput
             style={styles.textInput}
             placeholder="Search for a plant..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={localSearchQuery}
+            onChangeText={setLocalSearchQuery}
             onSubmitEditing={handleSearch} // Pressing enter triggers search
           />
           <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
@@ -149,10 +150,10 @@ const ProductList = ({navigation}) => {
           <Icon name="favorite" size={24} color="white" />
           <Text style={styles.navigationText}>Favorites</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navigationTab}>
-          <Icon name="person" size={24} color="white" />
-          <Text style={styles.navigationText}>Person</Text>
-        </TouchableOpacity>
+          <TouchableOpacity  style={styles.navigationTab} onPress={() =>navigation.navigate('UserAccount')}>
+            <Icon name="person" size={24} color="white" />
+            <Text style={styles.navigationText}>Person</Text>
+          </TouchableOpacity>
       </View>
     </SafeAreaView>
   );

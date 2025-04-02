@@ -1,38 +1,113 @@
 import React, { useState } from 'react';
-import { View, Platform, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Image,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
-
 import { useCart } from './CartContext';
+import { getFirestore, doc, collection, addDoc, getDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const Cart = () => {
-  const { cartItems, total, addToCart, handleDelete, decrementQuantity } = useCart();
+  const { cartItems, total, addToCart, handleDelete, decrementQuantity, setCartItems } = useCart(); // Added setCartItems to clear cart
   const navigation = useNavigation();
+  const auth = getAuth();
+  const db = getFirestore();
   const [loading, setLoading] = useState(false);
 
   const incrementQuantity = (itemId) => {
-    const item = cartItems.find(item => item.id === itemId);
-    if (item && item.quantity < 10) { 
+    const item = cartItems.find((item) => item.id === itemId);
+    if (item && item.quantity < 10) {
       addToCart(item);
     }
   };
 
-  const handleProceedToCheckout = () => {
+  const fetchUserDetails = async () => {
+    try {
+      const userId = auth.currentUser.uid;
+      const userDocRef = doc(db, 'users', userId);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        return userDocSnap.data(); // Fetch name and email
+      } else {
+        console.log('No user data found.');
+        return { name: '', email: '' }; // Fallback if data doesn't exist
+      }
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      return { name: '', email: '' };
+    }
+  };
+  const saveOrderToFirestore = async (location, userDetails) => {
+    try {
+      const userId = auth.currentUser.uid; // Current user ID
+  
+      // Generate a random order ID
+      const orderId = `ORD-${Math.random().toString(36).substr(2, 9)}`;
+  
+      // Define nursery's static location as initial deliveryLocation
+      const nurseryLocation = {
+        latitude: 15.590386, // Sai Nursery latitude
+        longitude: 73.810582, // Sai Nursery longitude
+        timestamp: new Date().toISOString(),
+      };
+  
+      // Define order details
+      const orderDetails = {
+        orderId,             // Random order ID
+        userId,              // Current user ID
+        name: userDetails.name,
+        email: userDetails.email,
+        items: cartItems,    // Cart items
+        total,               // Total value
+        location,            // User's current location
+        deliveryStatus: 'Pending',
+        deliveryLocation: nurseryLocation,
+        timestamp: new Date().toISOString(),
+      };
+  
+      // Add order to Firestore under user's document
+      const ordersCollectionRef = collection(db, `users/${userId}/orders`);
+      const docRef = await addDoc(ordersCollectionRef, orderDetails); // Create document and get its reference
+  
+      // Save full cart details to adminOrders collection
+      const adminOrdersCollectionRef = collection(db, 'adminOrders');
+      await addDoc(adminOrdersCollectionRef, { ...orderDetails }); // Reuse the same order details
+  
+      console.log('Order placed successfully:', docRef.id); // Log the document ID
+      return docRef.id; // Return the document ID
+    } catch (error) {
+      console.error('Error saving order to Firestore:', error);
+      Alert.alert('Error', 'An error occurred while placing your order.');
+      throw error; // Ensure error is propagated
+    }
+  };
+  const handleProceedToCheckout = async () => {
     Alert.alert(
-      "Confirm Checkout",
-      "Are you sure you want to proceed to checkout?",
+      'Confirm Checkout',
+      'Are you sure you want to proceed to checkout?',
       [
         {
-          text: "No",
-          style: "cancel",
+          text: 'No',
+          style: 'cancel',
         },
         {
-          text: "Yes",
+          text: 'Yes',
           onPress: async () => {
             setLoading(true);
             try {
+              // Request location permission
               let { status } = await Location.requestForegroundPermissionsAsync();
               if (status !== 'granted') {
                 Alert.alert('Permission Denied', 'We need location permission to proceed.');
@@ -40,17 +115,31 @@ const Cart = () => {
                 return;
               }
   
+              // Fetch user's current location
               let location = await Location.getCurrentPositionAsync({});
-              const pointA = {
+              const myloc = {
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude,
               };
   
-              navigation.navigate('Tracking', { pointA });
+              // Fetch user details from Firestore
+              const userDetails = await fetchUserDetails();
   
+              // Save order to Firestore and get document ID
+              const orderDocId = await saveOrderToFirestore(myloc, userDetails);
+  
+              // Navigate to TrackingMap with required parameters
+              navigation.navigate('Tracking', {
+                userId: auth.currentUser.uid, // Current user ID
+                orderId: orderDocId,         // Document ID returned from saveOrderToFirestore
+                userLocation: myloc,         // User's current location
+              });
+  
+              // Clear the cart
+              setCartItems([]);
             } catch (error) {
               Alert.alert('Error', 'Could not fetch location');
-              console.error(error);
+              console.error('Error:', error);
             }
             setLoading(false);
           },
@@ -59,7 +148,6 @@ const Cart = () => {
     );
   };
   
-
   const renderItem = ({ item }) => (
     <View style={styles.productContainer}>
       <Image source={{ uri: item.image }} style={styles.productImage} />
@@ -67,7 +155,7 @@ const Cart = () => {
         <Text style={styles.productName}>{item.name}</Text>
         <Text style={styles.productDetails}>Price: Rs. {item.price}</Text>
         <Text style={styles.productDetails}>Quantity: {item.quantity}</Text>
-        
+
         <View style={styles.actionsContainer}>
           <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.trashIcon}>
             <Icon name="delete" size={24} color="red" />
@@ -76,7 +164,11 @@ const Cart = () => {
             <TouchableOpacity onPress={() => decrementQuantity(item.id)}>
               <Icon name="remove" size={20} color="black" />
             </TouchableOpacity>
-            <TextInput style={styles.quantityText} value={String(item.quantity)} editable={false} />
+            <TextInput
+              style={styles.quantityText}
+              value={String(item.quantity)}
+              editable={false}
+            />
             <TouchableOpacity onPress={() => incrementQuantity(item.id)}>
               <Icon name="add" size={20} color="black" />
             </TouchableOpacity>
@@ -109,7 +201,10 @@ const Cart = () => {
                 <Text style={styles.total}>Order Value: Rs. {total - 30}</Text>
                 <Text style={styles.total}>Delivery: Rs. 30</Text>
                 <Text style={styles.total}>Total: Rs. {total}</Text>
-                <TouchableOpacity style={styles.checkoutButton} onPress={handleProceedToCheckout}>
+                <TouchableOpacity
+                  style={styles.checkoutButton}
+                  onPress={handleProceedToCheckout}
+                >
                   {loading ? (
                     <ActivityIndicator size="small" color="white" />
                   ) : (
@@ -121,10 +216,16 @@ const Cart = () => {
           />
         )}
       </View>
+      {/* Floating Delivery Icon */}
+      <TouchableOpacity
+        style={styles.floatingIcon}
+        onPress={() => navigation.navigate('Tracking')}
+      >
+        <Icon name="location-on" size={30} color="white" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
-
 const styles = StyleSheet.create({
   safeContainer: { flex: 1 },
   header: {

@@ -1,71 +1,87 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { getAuth } from 'firebase/auth';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Button } from 'react-native';
 import { getFirestore, collection, getDocs } from 'firebase/firestore';
 
 const DeliveryHome = ({ handleLogout, navigation }) => {
-  const [liveLocations, setLiveLocations] = useState([]);
-  const auth = getAuth();
+  const [pendingOrders, setPendingOrders] = useState([]);
   const db = getFirestore();
 
-  // Fetch live locations from Firestore where status is "live"
+  // Fetch all pending orders from all users, including userId
   useEffect(() => {
-    const fetchLiveLocations = async () => {
+    const fetchPendingOrders = async () => {
       try {
-        const usersRef = collection(db, 'users'); // Reference to 'users' collection
-        const querySnapshot = await getDocs(usersRef); // Get all users from the collection
-        const locationsList = [];
-
-        querySnapshot.forEach((docSnapshot) => {
-          const userData = docSnapshot.data();
-          const userLocations = userData.locations || [];
-          const userName = userData.name || 'Unknown'; // Fetch user's name
-
-          // Filter locations where status is 'live'
-          userLocations.forEach((location) => {
-            if (location.status === 'live') {
-              locationsList.push({
-                ...location,
-                userId: docSnapshot.id, // Store user ID
-                userName: userName, // Store user name
-              });
+        const usersRef = collection(db, 'users'); // Reference to users collection
+        const usersSnapshot = await getDocs(usersRef); // Get all user documents
+  
+        const ordersPromises = usersSnapshot.docs.map(async (userDoc) => {
+          const userId = userDoc.id;
+          const userData = userDoc.data();
+          const userName = userData.name || 'Unknown';
+  
+          const ordersRef = collection(db, `users/${userId}/orders`); // Reference to orders sub-collection
+          const ordersSnapshot = await getDocs(ordersRef);
+  
+          const userOrders = ordersSnapshot.docs.map((orderDoc) => {
+            const orderData = orderDoc.data();
+            if (orderData.deliveryStatus === 'Pending') {
+              return {
+                ...orderData,
+                userId,
+                userName,
+                orderId: orderDoc.id,
+              };
             }
+            return null; // Ignore non-pending orders
           });
+  
+          return userOrders.filter((order) => order !== null); // Filter out null values
         });
-
-        setLiveLocations(locationsList); // Set the live locations state
+  
+        // Wait for all promises to resolve
+        const resolvedOrders = await Promise.all(ordersPromises);
+  
+        // Flatten the array of orders and deduplicate using a Map
+        const flattenedOrders = resolvedOrders.flat();
+        const uniqueOrders = Array.from(
+          new Map(flattenedOrders.map((order) => [`${order.userId}-${order.orderId}`, order])).values()
+        );
+  
+        setPendingOrders(uniqueOrders); // Update state once with deduplicated orders
       } catch (error) {
-        console.error('Error fetching live locations:', error);
+        console.error('Error fetching pending orders:', error);
       }
     };
+  
+    fetchPendingOrders();
+  }, []);
+  
 
-    fetchLiveLocations();
-  }, []); // Empty dependency array to run once when the component mounts
-
-  // Navigate to TrackingMap with selected location
-  const handleLocationClick = (location) => {
+  // Navigate to DeliveryMap with selected order details
+  const handleOrderClick = (order) => {
     navigation.navigate('DeliveryMap', {
-      locationName: location.userName, // Pass userName instead of location name
-      coordinates: location.coordinates,
-      userId: location.userId,
+      orderId: order.orderId,
+      userId: order.userId,
+      userName: order.userName,
     });
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Delivery Home Dashboard</Text>
-      <Text style={styles.text}>Welcome to the admin panel. Here you can manage users and locations.</Text>
+      <Text style={styles.text}>Manage pending orders from all users.</Text>
 
-      {/* Display live locations as a list */}
+      {/* Display pending orders */}
       <FlatList
-        data={liveLocations}
-        keyExtractor={(item) => item.userId + item.timestamp} // Unique key for each location
+        data={pendingOrders}
+        keyExtractor={(item) => `${item.userId}-${item.orderId}`} // Unique key for each order
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.locationItem}
-            onPress={() => handleLocationClick(item)} // Navigate to map with location details
+            style={styles.orderItem}
+            onPress={() => handleOrderClick(item)} // Navigate to map with order details
           >
-            <Text style={styles.locationText}>{item.userName}</Text> {/* Show User Name */}
+            <Text style={styles.orderText}>User: {item.userName}</Text>
+            <Text style={styles.orderText}>Order ID: {item.orderId}</Text>
+            <Text style={styles.orderText}>Status: {item.deliveryStatus}</Text>
           </TouchableOpacity>
         )}
       />
@@ -93,16 +109,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  locationItem: {
+  orderItem: {
     padding: 10,
     marginBottom: 10,
     backgroundColor: '#f1f1f1',
     borderRadius: 5,
     width: '100%',
   },
-  locationText: {
+  orderText: {
     fontSize: 16,
-    fontWeight: 'bold',
   },
 });
 

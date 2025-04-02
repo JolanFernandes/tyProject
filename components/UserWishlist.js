@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCart } from './CartContext';
 import Toast from 'react-native-toast-message';
 import Icon from 'react-native-vector-icons/FontAwesome';
+import { SafeAreaView } from 'react-native-safe-area-context'; // Import SafeAreaView
 
 const Wishlist = () => {
   const [favourites, setFavourites] = useState([]);
@@ -26,31 +27,32 @@ const Wishlist = () => {
 
   const handleAddToCart = (item) => {
     addToCart(item);
-    setFavourites(favourites.filter(fav => fav.id !== item.id));
+    setFavourites(favourites.filter((fav) => fav.id !== item.id));
     Toast.show({
       type: 'info',
-      text1: 'Added to Cart',
+      text1: 'Added to Cart', // Ensured all strings are correctly wrapped
       visibilityTime: 4000,
       position: 'center',
     });
   };
 
   const handleDelete = (itemId) => {
-    const updatedFavorites = favourites.filter(fav => fav.id !== itemId);
+    const updatedFavorites = favourites.filter((fav) => fav.id !== itemId);
     setFavourites(updatedFavorites);
     AsyncStorage.setItem('favorites', JSON.stringify(updatedFavorites));
   };
 
   if (!favourites || favourites.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text>No favorites yet!</Text>
-      </View>
+      <SafeAreaView style={styles.container}> {/* SafeAreaView ensures proper spacing */}
+        <View style={styles.noFavoritesContainer}> {/* View properly wraps Text */}
+          <Text style={styles.noFavoritesText}>No favorites yet!</Text> {/* Correctly placed Text */}
+        </View>
+      </SafeAreaView>
     );
   }
 
   const renderItem = ({ item }) => {
-    // Debugging log for individual items
     console.log('Rendering item:', item);
 
     // Ensure that each item has the expected properties before rendering
@@ -65,11 +67,13 @@ const Wishlist = () => {
         <Text style={styles.itemName}>{item.name}</Text>
         <Text style={styles.itemPrice}>Rs. {item.price}</Text>
         <View style={styles.buttonContainer}>
+          {/* Delete Button */}
           <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteButton}>
             <Icon name="trash" size={20} color="red" />
           </TouchableOpacity>
+          {/* Add to Cart Button */}
           <TouchableOpacity onPress={() => handleAddToCart(item)} style={styles.addToCartButton}>
-            <Text style={styles.buttonText}>Add to Cart</Text>
+            <Text style={styles.buttonText}>Add to Cart</Text> {/* Text correctly wrapped */}
           </TouchableOpacity>
         </View>
       </View>
@@ -77,19 +81,21 @@ const Wishlist = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}> {/* SafeAreaView wraps FlatList */}
       <FlatList
         data={favourites}
-        keyExtractor={(item) => item.id} // Safely convert ID to string
+        keyExtractor={(item) => item.id} // KeyExtractor ensures proper IDs
         numColumns={2}
         renderItem={renderItem}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', padding: 10 },
+  noFavoritesContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' }, // Center the message
+  noFavoritesText: { fontSize: 18, color: 'gray', fontWeight: 'bold' }, // Proper styling for "No favorites yet!"
   itemContainer: { width: '45%', marginBottom: 20, marginHorizontal: 10 },
   image: { width: '100%', height: 150, borderRadius: 10 },
   itemName: { fontSize: 16, fontWeight: 'bold', marginTop: 10 },

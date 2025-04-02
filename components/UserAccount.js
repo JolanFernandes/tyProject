@@ -1,49 +1,87 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Button, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Button,
+  StyleSheet,
+  Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { signOut, getAuth } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
+const UserAccount = ({
+  navigation,
+  handleLogout,
+}) => {
+  const auth = getAuth();
+  const db = getFirestore();
+  const userId = auth.currentUser.uid; // Unique ID for the current user
 
-const UserAccount = ({ initialName, initialEmail, initialAddress, navigation,handleLogout  }) => {
-  // State for the user's profile info, including address and edit mode
-  const [name, setName] = useState(initialName);
-  const [email, setEmail] = useState(initialEmail);
-  const [address, setAddress] = useState(initialAddress);  // Address state
+  // State for user info and edit mode
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+
+  // Fetch user profile from Firestore
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const docRef = doc(db, 'users', userId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const userData = docSnap.data();
+          setName(userData.name || '');
+          setEmail(userData.email || '');
+          setAddress(userData.address || '');
+        } else {
+          console.log('No user data found');
+        }
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+      }
+    };
+
+    fetchUserProfile();
+  }, [userId]);
+
+  // Save changes to Firestore
+  const saveChanges = async () => {
+    try {
+      const docRef = doc(db, 'users', userId);
+      await setDoc(docRef, { name, email, address }, { merge: true }); // Update fields
+      setIsEditing(false);
+      Alert.alert('Profile Updated', 'Your profile changes have been saved.');
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      Alert.alert('Error', 'An error occurred while saving your profile.');
+    }
+  };
+
+  // Logout functionality
+  const handleSignOut = () => {
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to log out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          onPress: handleLogout,
+        },
+      ],
+      { cancelable: false }
+    );
+  };
 
   // Toggle editing mode
   const toggleEdit = () => {
     setIsEditing(!isEditing);
   };
-
-  // Save changes (this could also trigger an API call)
-  const saveChanges = () => {
-    setIsEditing(false);
-    // Optionally save to a server here
-    alert('Profile Updated!');
-  };
-
-  // Handle logout with confirmation
-  // Handle logout with confirmation
-const handleSignOut = () => {
-  Alert.alert(
-    'Confirm Logout',
-    'Are you sure you want to log out?',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Logout', 
-        onPress: () => {
-          handleLogout(); // Call the actual logout function from props
-        },
-      },
-    ],
-    { cancelable: false }
-  );
-};
-
-
 
   return (
     <SafeAreaView style={styles.safeContainer}>
@@ -101,7 +139,7 @@ const handleSignOut = () => {
           )}
         </View>
 
-        {/* Button to toggle between Edit and Save */}
+        {/* Toggle Edit/Save */}
         <View style={styles.buttonContainer}>
           {isEditing ? (
             <Button title="Save Changes" onPress={saveChanges} />
@@ -119,7 +157,6 @@ const handleSignOut = () => {
   );
 };
 
-// Styles for the component
 const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
