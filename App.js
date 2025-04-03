@@ -14,6 +14,7 @@ import UserHome from './components/UserHome';
 import DeliveryHome from './components/DeliveryHome';
 import UserMenu from './components/UserMenu';
 import ProductList from './components/UserProductList';
+import SeedsandPots from './components/Seeds';
 import Product from './components/UserProduct';
 import Wishlist from './components/UserWishlist';
 import Cart from './components/UserCart';
@@ -23,6 +24,7 @@ import ReminderApp from './components/ReminderScreen';
 import { CartProvider } from './components/CartContext';
 import GardeningServices from './components/Services';
 import DeliveryTrackingMap from './components/DeliveryMap';
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyABrXGrEqwadHdYJ9teck5JnoKdUPQu2Ao",
@@ -70,6 +72,9 @@ const UserNavigator = ({ handleLogout , scheduleNotification}) => (
     </UserStack.Screen>
     <UserStack.Screen name="ProductList" options={{ headerShown: false }}>
       {(props) => <ProductList {...props} />}
+    </UserStack.Screen>
+    <UserStack.Screen name="Seeds" options={{ headerShown: false }}>
+      {(props) => <SeedsandPots {...props} />}
     </UserStack.Screen>
     <UserStack.Screen name="Product" options={{ headerShown: false }}>
       {(props) => <Product {...props} />}
