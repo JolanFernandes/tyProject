@@ -18,6 +18,7 @@ import SeedsandPots from './components/Seeds';
 import Product from './components/UserProduct';
 import Wishlist from './components/UserWishlist';
 import Cart from './components/UserCart';
+import OrderHistory from './components/OrderHistory';
 import UserAccount from './components/UserAccount';
 import TrackingMap from './components/Tracking';
 import ReminderApp from './components/ReminderScreen';
@@ -84,6 +85,9 @@ const UserNavigator = ({ handleLogout , scheduleNotification}) => (
     </UserStack.Screen>
     <UserStack.Screen name="Cart" options={{ headerShown: false }}>
       {(props) => <Cart {...props} />}
+    </UserStack.Screen>
+    <UserStack.Screen name="OrderHistory" options={{ headerShown: false }}>
+      {(props) => <OrderHistory {...props} />}
     </UserStack.Screen>
     <UserStack.Screen name="UserAccount" options={{ headerShown: false }}>
       {(props) => <UserAccount {...props} handleLogout={handleLogout} />}

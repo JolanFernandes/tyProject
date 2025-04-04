@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,23 +11,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, PhoneAuthProvider, signInWithCredential } from 'firebase/auth';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
 
-const UserAccount = ({
-  navigation,
-  handleLogout,
-}) => {
+const UserAccount = ({ navigation, handleLogout }) => {
   const auth = getAuth();
   const db = getFirestore();
-  const userId = auth.currentUser.uid; // Unique ID for the current user
+  const userId = auth.currentUser.uid;
 
-  // State for user info and edit mode
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
+  const [number, setNumber] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
-  // Fetch user profile from Firestore
+  // Verification
+  const [verificationId, setVerificationId] = useState(null);
+  const [isVerified, setIsVerified] = useState(false);
+  const [otp, setOtp] = useState('');
+  const recaptchaVerifier = useRef(null);
+
   useEffect(() => {
     const fetchUserProfile = async () => {
       try {
@@ -38,8 +41,8 @@ const UserAccount = ({
           setName(userData.name || '');
           setEmail(userData.email || '');
           setAddress(userData.address || '');
-        } else {
-          console.log('No user data found');
+          setNumber(userData.number || '');
+          setIsVerified(userData.isPhoneVerified || false); // Get phone verified status
         }
       } catch (error) {
         console.error('Error fetching user profile:', error);
@@ -49,11 +52,14 @@ const UserAccount = ({
     fetchUserProfile();
   }, [userId]);
 
-  // Save changes to Firestore
   const saveChanges = async () => {
     try {
       const docRef = doc(db, 'users', userId);
-      await setDoc(docRef, { name, email, address }, { merge: true }); // Update fields
+      await setDoc(
+        docRef,
+        { name, email, address, number, isPhoneVerified: isVerified },
+        { merge: true }
+      );
       setIsEditing(false);
       Alert.alert('Profile Updated', 'Your profile changes have been saved.');
     } catch (error) {
@@ -62,7 +68,30 @@ const UserAccount = ({
     }
   };
 
-  // Logout functionality
+  const sendVerificationCode = async () => {
+    try {
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const id = await phoneProvider.verifyPhoneNumber(number, recaptchaVerifier.current);
+      setVerificationId(id);
+      Alert.alert('Verification Code Sent', 'Please check your phone.');
+    } catch (error) {
+      console.error('Error sending code:', error);
+      Alert.alert('Error', 'Failed to send verification code.');
+    }
+  };
+
+  const confirmCode = async () => {
+    try {
+      const credential = PhoneAuthProvider.credential(verificationId, otp);
+      await signInWithCredential(auth, credential);
+      setIsVerified(true);
+      Alert.alert('Success', 'Phone number verified!');
+    } catch (error) {
+      console.error('Invalid code:', error);
+      Alert.alert('Invalid Code', 'Please check the OTP and try again.');
+    }
+  };
+
   const handleSignOut = () => {
     Alert.alert(
       'Confirm Logout',
@@ -78,14 +107,17 @@ const UserAccount = ({
     );
   };
 
-  // Toggle editing mode
   const toggleEdit = () => {
     setIsEditing(!isEditing);
   };
 
   return (
     <SafeAreaView style={styles.safeContainer}>
-      {/* Header */}
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaVerifier}
+        firebaseConfig={auth.app.options}
+      />
+
       <View style={styles.header}>
         <TouchableOpacity>
           <Icon name="search" size={30} color="black" />
@@ -97,49 +129,74 @@ const UserAccount = ({
       </View>
 
       <View style={styles.container}>
-        {/* Name Field */}
         <View style={styles.field}>
           <Text style={styles.label}>Name:</Text>
           {isEditing ? (
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-            />
+            <TextInput style={styles.input} value={name} onChangeText={setName} />
           ) : (
             <Text style={styles.text}>{name}</Text>
           )}
         </View>
 
-        {/* Email Field */}
         <View style={styles.field}>
           <Text style={styles.label}>Email:</Text>
           {isEditing ? (
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-            />
+            <TextInput style={styles.input} value={email} onChangeText={setEmail} />
           ) : (
             <Text style={styles.text}>{email}</Text>
           )}
         </View>
 
-        {/* Address Field */}
         <View style={styles.field}>
           <Text style={styles.label}>Address:</Text>
           {isEditing ? (
-            <TextInput
-              style={styles.input}
-              value={address}
-              onChangeText={setAddress}
-            />
+            <TextInput style={styles.input} value={address} onChangeText={setAddress} />
           ) : (
             <Text style={styles.text}>{address}</Text>
           )}
         </View>
 
-        {/* Toggle Edit/Save */}
+        <View style={styles.field}>
+          <Text style={styles.label}>Phone Number:</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={number}
+              onChangeText={(text) => {
+                setNumber(text);
+                setIsVerified(false);
+              }}
+              keyboardType="phone-pad"
+            />
+            {isVerified ? (
+              <Icon name="check-circle" size={24} color="green" style={{ marginLeft: 8 }} />
+            ) : (
+              isEditing && (
+                <TouchableOpacity onPress={sendVerificationCode}>
+                  <Text style={{ color: 'blue', marginLeft: 10 }}>Verify</Text>
+                </TouchableOpacity>
+              )
+            )}
+          </View>
+        </View>
+
+        {!isVerified && verificationId && isEditing && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Enter OTP:</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={otp}
+                onChangeText={setOtp}
+                keyboardType="numeric"
+              />
+              <TouchableOpacity onPress={confirmCode}>
+                <Text style={{ color: 'green', marginLeft: 10 }}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.buttonContainer}>
           {isEditing ? (
             <Button title="Save Changes" onPress={saveChanges} />
@@ -148,7 +205,6 @@ const UserAccount = ({
           )}
         </View>
 
-        {/* Logout Button */}
         <View style={styles.buttonContainer}>
           <Button title="Logout" color="red" onPress={handleSignOut} />
         </View>
@@ -178,12 +234,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     backgroundColor: '#fff',
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 5,
   },
   field: {
     marginBottom: 20,

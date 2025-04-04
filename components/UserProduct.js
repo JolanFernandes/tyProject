@@ -117,7 +117,7 @@ const Product = ({ product, navigation }) => {
           <Icon name="favorite" size={24} color="white" />
           <Text style={styles.navigationText}>Favorites</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navigationTab}>
+        <TouchableOpacity  style={styles.navigationTab} onPress={() =>navigation.navigate('UserAccount')}>
           <Icon name="person" size={24} color="white" />
           <Text style={styles.navigationText}>Person</Text>
         </TouchableOpacity>

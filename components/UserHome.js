@@ -76,7 +76,7 @@ const UserHome = ({ handleLogout, navigation }) => {
   
   
     const openWhatsApp = () => {
-      const phoneNumber = '+918830318137'; // Replace with actual number
+      const phoneNumber = '+919763780941'; // Replace with actual number
       const message = 'Hello! , I had a Query to be answered...';
       const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
   
@@ -147,7 +147,7 @@ const UserHome = ({ handleLogout, navigation }) => {
           </View>
         </TouchableOpacity>
         <View style={styles.iconRow}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Tracking')}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('OrderHistory')}>
             <Icon name="local-offer" size={50} color="white" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Wishlist')}>
